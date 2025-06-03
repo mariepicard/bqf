@@ -1,5 +1,5 @@
 #include "bqf_cf.hpp"
-#pragma push_macro("BLOCK_SIZE")
+#pragma push_macro("BLOCK_SIZE") //overlapping macro definitions
 #undef BLOCK_SIZE
 #include "FastxParser.hpp"
 #pragma pop_macro ("BLOCK_SIZE")
@@ -67,15 +67,21 @@ void Bqf_cf::filter_fastx_file(std::vector<std::string> files, std::string outpu
             outfile.write(reinterpret_cast<const char*>(bin_buffer.data()), counter*sizeof(uint64_t));
             break;
         case stream:
-            std::cout << counter;
-            for (auto& kmer : bin_buffer) {
-                std::cout << kmer;
-            }
             break;
     }
-    outfile.close();
-        
+    outfile.close();    
 }
+
+uint64_t Bqf_cf::yield_kmer(void) {
+    assert (mode == stream);
+    if (buffer_iterator > bin_buffer.size()) {
+        return EOF;
+    }
+    return bin_buffer[buffer_iterator++];
+}
+
+
+
 
 void Bqf_cf::insert_from_sequence (std::string sequence) {
     if (verbose){
