@@ -58,21 +58,24 @@ private :
     /**
      * \brief adds an occurence of an element in a certain position
      * \param position where the element should be counted once more
-     * \returns if the element has already been inserted exactly once before
      */
-    bool is_second_add_to_counter(uint64_t position);
+    void add_one_to_counter(uint64_t position);
     /**
      * \brief adds an occurence of a number in the BQF
      * \param number that should be inserted
-     * \returns if the number has already been inserted exactly once before
      */
-    bool is_second_insert(uint64_t number);
+    void is_second_insert(uint64_t number);
     /**
      * \brief adds an occurence of an encoded in the BQF, and if it has 
      * already been inserted exactly once, writes the kmer in a buffer
      * \param coded_kmer that should be inserted
      */
     void insert_kmer(uint64_t coded_kmer);
+    /**
+     * @brief enumerates all hashes of solid (appearing at least twice) kmers in the BQF
+     * \returns a vector of all hashes of the solid kmers
+     */
+    std::vector<uint64_t> enumerate_solid();
 
     
     
