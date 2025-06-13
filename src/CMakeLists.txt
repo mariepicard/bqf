@@ -12,6 +12,10 @@ add_executable(bqf
 	main.cpp
 )
 
+add_executable(minimizers
+	choix_signature.cpp
+)
+
 add_library(RSQF
 	additional_methods.cpp
 	rsqf.cpp
@@ -31,5 +35,12 @@ target_include_directories(RSQF
 target_link_libraries(bqf
 	RSQF
 )
+
+target_include_directories(minimizers
+	PUBLIC
+	"${PROJECT_SOURCE_DIR}/src/headers/"
+)
+target_include_directories(minimizers PRIVATE ${CMAKE_SOURCE_DIR}/bundled/FQFeeder/include ${ZLIB_INCLUDE_DIRS})
+target_link_libraries(minimizers PRIVATE fqfeeder ZLIB::ZLIB)
 
 set_property(TARGET RSQF PROPERTY CXX_STANDARD 17)
