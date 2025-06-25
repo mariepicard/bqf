@@ -70,7 +70,7 @@ public:
      * \param number to insert
      * \param count number of occurences of the element to insert (default: 1)
      */
-    virtual void insert(uint64_t number, uint64_t count = 1);
+    virtual bool insert(uint64_t number, uint64_t count = 1);
 
     /**
      * \brief finds the position in which to insert a remainder in a run

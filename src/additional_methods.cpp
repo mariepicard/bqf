@@ -251,7 +251,7 @@ uint64_t nucl_encode(char nucl){
     case 'T':
       return 3;
     default :
-        cout << "non nucl : " << nucl << endl;
+        //cout << "non nucl : " << nucl << endl;
         throw std::invalid_argument( "received non nucleotidic value" );
   }
 }

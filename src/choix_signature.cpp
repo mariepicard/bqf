@@ -33,77 +33,101 @@ uint32_t min(uint32_t a, uint32_t b)
     return b;
 }
 
-uint64_t nucl_encode(char nucl)
-{
-    // Returns the binary encoding of a nucleotide
-    // different from encode() function because this is for query, so we have to check for canonical smer
-    // and this encoding allows fast comparison (<) of lexico order
-    switch (nucl)
-    {
-    case 'A':
-        return 0;
-    case 'C':
-        return 1;
-    case 'G':
-        return 2;
-    case 'T':
-        return 3;
-    default:
-        std::cout << "non nucl : " << nucl << std::endl;
-        throw std::invalid_argument("received non nucleotidic value");
+void display_MMer(uint64_t encoded, MMer minimizer, uint pos) {
+    uint start = 2*minimizer.get_position() + 2;
+    uint end = start - 2*M;
+    for (uint i = 0; i < 2*K; i++) {
+        uint j = 2*K - 1 - i;
+        if ((j >= end && j < start) || j == pos) {
+            std::cout << ((encoded >> j) & 0b1);
+        } else {
+            std::cout << ".";
+        }
     }
+    std::cout << std::endl;
 }
 
-void display_bits(uint32_t mmer, std::ostream& str) {
-    for (int i = 0; i < 2*M; i++){
-        str << ((mmer>>(2*M - 1))&1);
-        mmer <<= 1;
+uint32_t minimal_encoding(uint32_t canon, uint m) {
+    uint32_t encoding = 0;
+    uint i = 0;
+    uint palindromic = 0; //0 if palindromic, 1 after a specifying pair is found
+    //while no specifying pair is found
+    for (; 2*i+1 < m; i++){
+        uint32_t r = (~canon >> (2*i)) & 0b11;
+        uint32_t l = (canon >> (2*(m - i - 1))) & 0b11;
+
+        if (r == l) {
+            encoding |= r << (2*i);
+        }
+        else {
+            uint32_t value = l*4 - l*(l+1)/2 + r - l - 1;
+            value += 0b0100; //making sure the encoding of the specifying pair does not start with 0
+            encoding |= (value << (2*(m - i - 2)));
+            palindromic = 1;
+            i++;
+            break;
+        }
     }
+    encoding |= (mask(2*i, 2*m - 4*i) & canon)>>(2*palindromic);
+    uint32_t missing = palindromic*(1<<(2*(m - i) - 1));
+    return encoding - missing;
 }
 
 /*********************************
  * SIGN
  ********************************/
 
-Signature::Signature(std::string filename) : filename(filename)
+Signature::Signature(std::string filename) : filename(filename), kmers_per_min(1<<(2*M), 0)
 {
     begin_build = std::chrono::high_resolution_clock::now();
     end_build = std::chrono::high_resolution_clock::now();
 }
 
-std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint32_t>& occurences)
+std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth)
 {
-    uint nb_min = 0;
+    uint nb_distinct_min = 0;
     uint nb_skipped = 0;
     MMer prev = MMer(max_value, K);
     uint64_t encoded = 0;
-    for (int i = 0; i < K - 1; i++)
+    uint lgth = 0;
+    for (size_t i = 0; i < seq.length(); i++)
     {
         encoded <<= 2;
-        encoded |= nucl_encode(seq[i]);
-    }
-
-    for (size_t i = K - 1; i < seq.length(); i++)
-    {
-        encoded <<= 2;
-        encoded |= nucl_encode(seq[i]);
-        MMer minimmizer = sign(encoded, prev);
-        if (minimmizer.get_position() < K) {
-            //std::cout << minimmizer.get_mmer() << std::endl;
-            occurences[minimmizer.get_mmer()]++;
-            nb_min++;
+        try {
+            encoded |= nucl_encode(seq[i]);
+            lgth++;
         }
-        else {
-            nb_skipped ++;
+        catch (const std::exception &e) {
+            lgth = 0;
+            encoded = 0;
         }
-        prev = minimmizer;
+        if (lgth >= K) {
+            MMer minimizer = sign(encoded, prev);
+            uint32_t position_in_bqf = sign_with_extra_bit(encoded, minimizer);
+            kmers_per_min[position_in_bqf]++;
+            if (kmers.insert(kmer_to_hash(encoded, K))) {
+                if (minimizer.get_position() < K) {
+                    //std::cout << minimizer.get_mmer() << std::endl;
+                    occurences[position_in_bqf]++;
+                    nb_distinct_min++;
+                }
+                else {
+                    nb_skipped ++;
+                }
+            }
+            
+            if (prev.get_mmer() == minimizer.get_mmer() && lgth > K)
+                superkmerlgth++;
+            prev = minimizer;
+        }
+        
     }
-    return std::make_pair(nb_min, nb_skipped);
+    return std::make_pair(nb_distinct_min, nb_skipped);
 }
 
 void Signature::output()
 {
-    std::string timename = name() + "_time.txt";
+    std::string timename = "../../" + name() + "_time.txt";
     std::ofstream timefile(timename);
     if (!timefile.is_open())
     {
@@ -117,50 +141,43 @@ void Signature::output()
     parser.start();
     auto rg = parser.getReadGroup();
     std::vector<uint32_t> occurences(1 << (2 * M), 0);
+    Bqf_ec kmers = Bqf_ec(20,1,K,0,false);
     auto begin = std::chrono::high_resolution_clock::now();
-    uint nb_min = 0;
+    uint nb_distinct_min = 0;
     uint nb_skipped = 0;
+    uint64_t superkmerlgth = 0;
     while (parser.refill(rg))
     {
         for (auto &rp : rg)
         {
-            std::pair<uint,uint> min_skipped = add_minimizers(rp.seq, occurences);
-            nb_min += min_skipped.first;
+            std::pair<uint,uint> min_skipped = add_minimizers(rp.seq, occurences, kmers, superkmerlgth);
+            nb_distinct_min += min_skipped.first;
             nb_skipped += min_skipped.second;
         }
     }
     parser.stop();
 
     auto stop = std::chrono::high_resolution_clock::now();
-    auto time_per_minimizer = std::chrono::duration_cast<std::chrono::nanoseconds>((stop - begin) / nb_min);
+    auto time_per_minimizer = std::chrono::duration_cast<std::chrono::nanoseconds>((stop - begin) / nb_distinct_min);
     timefile << "computing minimizers time: " << time_per_minimizer.count() << "ns" << std::endl;
-    timefile << "Found minimizers: " << nb_min << std::endl;
+    timefile << "Found minimizers: " << nb_distinct_min << std::endl;
     timefile << "Skipped minimizers: " << nb_skipped << std::endl;
+    timefile << "Number of follow-ups: " << superkmerlgth << std::endl;
     timefile.close();
 
-    std::string distname = name() + "_dist.csv";
+    std::string distname = "../../" + name() + "_dist.csv";
     std::ofstream repartitionfile(distname);
     if (!repartitionfile.is_open())
     {
         throw std::runtime_error("Could not open file " + distname);
         exit(EXIT_FAILURE);
     }
-    repartitionfile << "mmer,nb_occs" << std::endl;
+    repartitionfile << "mmer,nb_distinct_occs,nb_total_occs" << std::endl;
     for (uint32_t mmer = 0; mmer < max_value; mmer++)
     {
         uint32_t canon = min(mmer, compute_revcomp(mmer));
-        if (canon == mmer)
-        {
-            repartitionfile << mmer << "," << occurences[mmer] << std::endl;
-        }
-        else if (occurences[mmer] > 0)
-        {
-            display_bits(mmer, std::cerr);
-            std::cerr << " is not canonical (canon = ";
-            display_bits(canon, std::cerr);
-            std::cerr << ") but occurences " << occurences[mmer] << std::endl;
-            exit(EXIT_FAILURE);
-        }
+        repartitionfile << mmer << "," << occurences[mmer] << "," << kmers_per_min[mmer] << std::endl;
+
     }
     repartitionfile << max_value << "," << nb_skipped << std::endl;
     repartitionfile.close();
@@ -207,6 +224,12 @@ MMer Signature::sign(uint64_t encoded, MMer prev)
     return prev;
 }
 
+uint32_t Signature::sign_with_extra_bit(uint64_t encoded, MMer minimizer) {
+    uint idx = (2*minimizer.get_position() + (K - M + 1))%(2*K);
+    //display_MMer(encoded, minimizer, idx);
+    return (minimizer.get_min_encoding() << 1) | ((encoded >> idx) & 0b1);
+}
+
 /********************************
  * KMC signature
  *******************************/
@@ -250,26 +273,23 @@ MMer KMC_sign::sign(uint64_t encoded)
 {
     uint32_t min_mmer = max_value;
     uint pos = K;
+    uint32_t mask = max_value;
     uint32_t current_mmer = static_cast<uint32_t>(encoded) & max_value;
     uint32_t current_revcomp = compute_revcomp(current_mmer);
     for (int i = M - 1; i < K; i++)
     {
         uint32_t canon = min(current_mmer, current_revcomp);
         bool allowed = is_allowed(canon);
-        /* if (allowed) {
-            display_bits(allowed, std::cout);
-            std::cout << std::endl;
-        } */
         if (canon < min_mmer && allowed)
         {
             min_mmer = canon;
             pos = i;
         }
         encoded >>= 2;
-        current_mmer = static_cast<uint32_t>(encoded) & max_value;
+        current_mmer = encoded & mask;
         current_revcomp <<= 2;
         current_revcomp |= get_new_nucl(~encoded);
-        current_revcomp &= max_value;
+        current_revcomp &= mask;
     }
     return MMer(min_mmer, pos);
 };
@@ -285,6 +305,7 @@ MMer KMC_sign::sign(uint64_t encoded, MMer prev)
     uint32_t revcomp = compute_revcomp(last_mmer);
     uint32_t canon = min(last_mmer, revcomp);
     uint32_t min_mmer = prev.get_mmer();
+
     if (canon <= min_mmer && is_allowed(last_mmer))
     {
         return MMer(canon, M - 1);
@@ -427,32 +448,36 @@ MMer Wood_sign::sign(uint64_t encoded, MMer prev)
  * Frequency-based signature
  *******************************/
 
-int add_all_mmers(std::string sequence, std::vector<uint32_t> &occ)
+void add_all_mmers(std::string sequence, std::vector<uint32_t> &occ)
 {
     if (sequence.length() < M)
-        return 0;
-    uint32_t mask = (1 << (2 * M)) - 1;
+        return;
+    uint32_t mask_2M = mask(0,2*M);
     uint32_t mmer = 0;
-    for (int i = 0; i < M; i++)
+    uint32_t revcomp = 0;
+    uint32_t canon;
+    uint lgth = 0;
+    uint32_t new_nucl = 0;
+    for (size_t i = 0; i < sequence.length(); i++)
     {
+        try {
+            new_nucl = nucl_encode(sequence[i]);
+            lgth++;
+        }
+        catch (const std::exception &e) {
+            lgth = 0;
+            mmer = 0;
+        }
         mmer <<= 2;
-        mmer |= nucl_encode(sequence[i]);
-    }
-    uint32_t revcomp = compute_revcomp(mmer);
-    uint32_t canon = min(mmer, revcomp);
-    occ[canon]++;
-    for (size_t i = M; i < sequence.length(); i++)
-    {
-        uint32_t new_nucl = nucl_encode(sequence[i]);
-        mmer <<= 2;
-        mmer &= mask;
+        mmer &= mask_2M;
         mmer |= new_nucl;
         revcomp >>= 2;
         revcomp |= (~new_nucl & 0b11) << (2 * M - 2);
-        canon = min(mmer, revcomp);
-        occ[canon]++;
+        if (lgth >= M) {
+            canon = min(mmer, revcomp);
+            occ[canon]++;
+        }
     }
-    return sequence.length() + 1 - M;
 }
 
 std::vector<uint32_t> argsort(std::vector<uint32_t> &v)
@@ -471,14 +496,12 @@ Frequency_sign::Frequency_sign(std::string filename) : Signature(filename), orde
     fastx_parser::FastxParser<fastx_parser::ReadSeq> parser(files, 1, 1);
     parser.start();
     auto rg = parser.getReadGroup();
-    uint inserted_mmers = 0;
-    uint nb_to_insert = 1 << (2 * M + 3);
     std::vector<uint32_t> occurences(1 << (2 * M), 0);
-    while (parser.refill(rg) && inserted_mmers < nb_to_insert)
+    while (parser.refill(rg))
     {
         for (auto &rp : rg)
         {
-            inserted_mmers += add_all_mmers(rp.seq, occurences);
+            add_all_mmers(rp.seq, occurences);
         }
     }
     parser.stop();
@@ -502,6 +525,7 @@ MMer Frequency_sign::sign(uint64_t encoded)
 {
     uint32_t mmer = static_cast<uint32_t>(encoded) & max_value;
     uint32_t revcomp = compute_revcomp(mmer);
+    uint32_t mask = max_value;
 
     uint pos = K;
     uint32_t min_value = most_occ;
@@ -515,10 +539,10 @@ MMer Frequency_sign::sign(uint64_t encoded)
             pos = i;
         }
         encoded >>= 2;
-        mmer = static_cast<uint32_t>(encoded) & max_value;
+        mmer = encoded & mask;
         revcomp <<= 2;
         revcomp |= get_new_nucl(~encoded);
-        revcomp &= max_value;
+        revcomp &= mask;
     }
     return MMer(min_value, pos);
 };

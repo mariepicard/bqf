@@ -41,6 +41,6 @@ target_include_directories(minimizers
 	"${PROJECT_SOURCE_DIR}/src/headers/"
 )
 target_include_directories(minimizers PRIVATE ${CMAKE_SOURCE_DIR}/bundled/FQFeeder/include ${ZLIB_INCLUDE_DIRS})
-target_link_libraries(minimizers PRIVATE fqfeeder ZLIB::ZLIB)
+target_link_libraries(minimizers PRIVATE RSQF fqfeeder ZLIB::ZLIB)
 
 set_property(TARGET RSQF PROPERTY CXX_STANDARD 17)

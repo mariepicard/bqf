@@ -98,7 +98,7 @@ pair<uint64_t, bool> Bqf::find_insert_position(const pair<uint64_t,uint64_t> bou
 
 
 
-void Bqf::insert(uint64_t number, uint64_t count){
+bool Bqf::insert(uint64_t number, uint64_t count){
     if (elements_inside+1 == size_limit){
         if (verbose){
             cout << "RESIZING, nbElem: " << elements_inside << endl;
@@ -136,7 +136,8 @@ void Bqf::insert(uint64_t number, uint64_t count){
         set_occupied_bit(get_block_id(quot), 1, get_shift_in_block(quot));
         shift_bits_left_metadata(quot, 1, starting_position, fu_slot);
         elements_inside++;
-        return shift_left_and_set_circ(starting_position, fu_slot, rem_count);
+        shift_left_and_set_circ(starting_position, fu_slot, rem_count);
+        return false;
     }
     // IF THE QUOTIENT HAS BEEN USED BEFORE
     // GET POSITION WHERE TO INSERT TO (BASED ON VALUE) IN THE RUN (INCREASING ORDER)
@@ -156,13 +157,15 @@ void Bqf::insert(uint64_t number, uint64_t count){
         uint64_t position = pos_and_found.first;
 
         if (pos_and_found.second) {
-            return add_to_counter(position, rem_count);
+            add_to_counter(position, rem_count);
+            return true;
         }
 
         shift_bits_left_metadata(quot, 0, boundary.first, fu_slot);
         // SHIFT EVERYTHING RIGHT AND INSERTING THE NEW REMAINDER
         elements_inside++;
         shift_left_and_set_circ(position, fu_slot, rem_count);
+        return false;
     }
 }
 
