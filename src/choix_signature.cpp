@@ -74,6 +74,17 @@ uint32_t minimal_encoding(uint32_t canon, uint m) {
 }
 
 /*********************************
+ * SLIDING WINDOW ALGORITHM
+ ********************************/
+
+ SlidingWindowMinimum::addElement(uint32_t element, std::function<bool(uint32_t, uint32_t)> compare) {
+    while (!minima.empty() && compare(minima.back(), element)) {
+        minima.pop_back();
+    }
+    minima.push_back(element);
+ }
+
+/*********************************
  * SIGN
  ********************************/
 

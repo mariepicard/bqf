@@ -11,7 +11,9 @@
 #include "bqf_ec.hpp"
 #include "additional_methods.hpp"
 #include <algorithm>
+#include <deque>
 #include <chrono>
+#include <functional>
 #define M 15
 #define K 32
 static const uint64_t INDEX2_XOR_MASK = 0xe37e28c4271b5a2dULL;
@@ -51,12 +53,27 @@ public:
 };
 
 
+class SlidingWindowMinimum {
+    std::deque<uint32_t> minima = std::deque<uint32_t>();
+
+public :
+    uint32_t getMinimum() {return minima.front();}
+    void clear () {minima.clear();}
+    void addElement(uint32_t element, std::function<bool(uint32_t, uint32_t)> compare);
+    void deleteElement(uint32_t element) {
+        if (minima.front() == element) {
+            minima.pop_front();
+        }
+    };
+}
+
 /*********************************
  * SIGN
  ********************************/
 class Signature
 {
     std::string filename;
+    
 
 public:
     const uint32_t max_value = (1 << (2 * M)) - 1;
@@ -67,6 +84,8 @@ public:
     Signature() {};
     Signature(std::string filename);
 
+    virtual std::function<bool(uint32_t, uint32_t)> compare(){return [](uint32_t a, uint_32_t b){return a < b;}};
+    virtual uint32_t last_canonical_mmer_encoding(uint64_t encoded);
     virtual MMer sign(uint64_t encoded);
     virtual MMer sign(uint64_t encoded, MMer prev);
     uint32_t sign_with_extra_bit(uint64_t encoded, MMer minimizer);
