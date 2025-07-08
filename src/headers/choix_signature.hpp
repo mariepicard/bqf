@@ -49,23 +49,9 @@ public:
     uint32_t get_mmer() { return mmer; }
     uint32_t get_min_encoding() { return min_encoding; }
     uint get_position() { return pos; }
-    void update_pos() { pos += 1; }
 };
 
 
-class SlidingWindowMinimum {
-    std::deque<uint32_t> minima = std::deque<uint32_t>();
-
-public :
-    uint32_t getMinimum() {return minima.front();}
-    void clear () {minima.clear();}
-    void addElement(uint32_t element, std::function<bool(uint32_t, uint32_t)> compare);
-    void deleteElement(uint32_t element) {
-        if (minima.front() == element) {
-            minima.pop_front();
-        }
-    };
-}
 
 /*********************************
  * SIGN
@@ -83,13 +69,28 @@ public:
 
     Signature() {};
     Signature(std::string filename);
-
-    virtual std::function<bool(uint32_t, uint32_t)> compare(){return [](uint32_t a, uint_32_t b){return a < b;}};
-    virtual uint32_t last_canonical_mmer_encoding(uint64_t encoded);
-    virtual MMer sign(uint64_t encoded);
-    virtual MMer sign(uint64_t encoded, MMer prev);
-    uint32_t sign_with_extra_bit(uint64_t encoded, MMer minimizer);
     virtual std::string name() {return "default_signature";}
+
+    std::vector<uint32_t> all_signatures(std::string seq);
+    std::vector<uint64_t> all_canonical_kmers(std::string seq);
+    uint32_t min_mmer(uint32_t u, uint32_t v) { 
+        if (compare(u,v)) {
+            return u;
+        } return v;
+    }
+    /** In place sliding window minimum algorithm
+     * using https://github.com/lrobidou/sliding-minimum-windows/blob/main/min.cpp implementation
+     * under license GNU Affero General Public License v3.0
+     * the algorithm can be found in https://doi.org/10.1093/bioinformatics/btad305 
+     * the code was adapted to 
+     *      - use uint32_t integers
+     *      - use different comparison functions
+     *      - use a starting position in the array
+     * */
+    std::vector<uint32_t> sliding_window_minimum(std::vector<uint32_t>& canonical_mmers, uint start);
+    virtual bool compare(uint32_t u, uint32_t v) { return u < v;}
+    virtual uint32_t last_canonical_mmer_encoding(uint64_t encoded, uint32_t& last_mmer, uint32_t& last_revcomp);
+    uint32_t sign_with_extra_bit(uint64_t encoded, MMer minimizer);
 
     std::pair<uint,uint> add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth);
 
@@ -101,11 +102,10 @@ class KMC_sign : public Signature
     static bool is_allowed(uint32_t mmer);
 
 public:
-
+    
     KMC_sign(std::string filename);
     std::string name() override;
-    MMer sign(uint64_t encoded) override;
-    MMer sign(uint64_t encoded, MMer prev) override;
+    uint32_t last_canonical_mmer_encoding(uint64_t encoded, uint32_t& last_mmer, uint32_t& last_revcomp) override;
 };
 
 class Roberts_sign : public Signature
@@ -115,8 +115,7 @@ public:
     Roberts_sign(std::string filename);
 
     std::string name() override;
-    MMer sign(uint64_t encoded) override;
-    MMer sign(uint64_t encoded, MMer prev) override;
+    uint32_t last_canonical_mmer_encoding(uint64_t encoded, uint32_t& last_mmer, uint32_t& last_revcomp) override;
 };
 
 class Wood_sign : public Signature
@@ -124,12 +123,12 @@ class Wood_sign : public Signature
     uint32_t xor_mask = INDEX2_XOR_MASK & max_value;
 
 public:
-
     Wood_sign(std::string filename);
 
     std::string name() override;
-    MMer sign(uint64_t encoded) override;
-    MMer sign(uint64_t encoded, MMer prev) override;
+    bool compare(uint32_t u, uint32_t v) override {
+        return (u^xor_mask) < (v^xor_mask);
+    }
 };
 
 class Frequency_sign : public Signature
@@ -141,8 +140,9 @@ public:
     Frequency_sign(std::string filename);
 
     std::string name() override;
-    MMer sign(uint64_t encoded) override;
-    MMer sign(uint64_t encoded, MMer prev) override;
+    bool compare(uint32_t u, uint32_t v) override {
+        return order[u] < order[v];
+    }
 };
 
 #endif
