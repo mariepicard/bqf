@@ -4,7 +4,7 @@
  * TOOLS
  ********************************/
 
-uint32_t compute_revcomp(uint32_t mmer)
+uint32_t compute_revcomp(uint32_t mmer, uint M)
 {
     uint32_t revcomp = 0;
 
@@ -19,7 +19,7 @@ uint32_t compute_revcomp(uint32_t mmer)
     return revcomp;
 }
 
-uint32_t get_new_nucl(uint64_t encoded)
+uint32_t get_new_nucl(uint64_t encoded, uint M)
 {
     return (static_cast<uint32_t>(encoded) >> (2 * M - 2)) & 0b11;
 }
@@ -37,7 +37,7 @@ uint32_t min(uint32_t a, uint32_t b)
  * DISPLAY
  ********************************/
 
-void display_MMer(uint64_t encoded, MMer minimizer, uint pos) {
+void display_MMer(uint64_t encoded, MMer minimizer, uint pos, uint M) {
     uint start = 2*minimizer.get_position() + 2;
     uint end = start - 2*M;
     for (uint i = 0; i < 2*K; i++) {
@@ -51,7 +51,7 @@ void display_MMer(uint64_t encoded, MMer minimizer, uint pos) {
     std::cout << std::endl;
 }
 
-void display_mmer(uint32_t mmer) {
+void display_mmer(uint32_t mmer, uint M) {
     std::string mmer_display = "";
     for (int i = 0; i < M; i++) {
         char conversion[4] = {'A', 'C', 'G', 'T'};
@@ -77,7 +77,7 @@ void display_kmer(uint64_t kmer) {
  * MINIMAL ENCODING OF MMERS
  ********************************/
 
-uint32_t minimal_encoding(uint32_t canon) {
+uint32_t minimal_encoding(uint32_t canon, uint M) {
     uint32_t encoding = 0;
     uint i = 0;
     uint palindromic = 0; //0 if palindromic, 1 after a specifying pair is found
@@ -167,7 +167,8 @@ std::vector<uint32_t> Signature::sliding_window_minimum(std::vector<uint32_t>& m
  * SIGN
  ********************************/
 
-Signature::Signature(std::string filename) : filename(filename), kmers_per_min(1<<(2*M), 0)
+Signature::Signature(std::string filename, uint M) : 
+    filename(filename), kmers_per_min(1<<(2*M), 0), max_value((1 << (2 * M)) - 1), M(M)
 {
     begin_build = std::chrono::high_resolution_clock::now();
     end_build = std::chrono::high_resolution_clock::now();
@@ -243,17 +244,12 @@ std::vector<uint64_t> Signature::all_canonical_kmers(std::string seq) {
     return all_kmers;
 }
 
-std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth)
+std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth, uint64_t& total_nb_kmers)
 {
-    //std::cout << "Size of mmer array : " << (seq.size() - M) << "\n Size of kmer array : " << (seq.size() - K) << std::endl;
     std::vector<uint32_t> signs = all_signatures(seq);
     std::vector<uint64_t> all_kmers = all_canonical_kmers(seq);
     uint arr_lgth = signs.size();
-    if (arr_lgth != all_kmers.size()) {
-        std::cerr << "Signature array of size " << signs.size() << std::endl;
-        std::cerr << "K-mers array of size " << all_kmers.size() << std::endl;
-        throw std::runtime_error("different array lgth");
-    }
+    total_nb_kmers += arr_lgth;
 
     uint nb_distinct_min = 0;
     uint nb_skipped = 0;
@@ -261,7 +257,7 @@ std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint
         if (signs[i] == max_value) {
             nb_skipped ++;
         } else {
-            uint32_t position_in_bqf = minimal_encoding(signs[i]);//sign_with_extra_bit(all_kmers[i], minimizer);
+            uint32_t position_in_bqf = minimal_encoding(signs[i], M);//sign_with_extra_bit(all_kmers[i], minimizer);
             kmers_per_min[position_in_bqf]++;
             if (!kmers.insert(kmer_to_hash(all_kmers[i], K))) {
                 occurences[position_in_bqf]++;
@@ -275,7 +271,7 @@ std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint
     return std::make_pair(nb_distinct_min, nb_skipped);
 }
 
-void Signature::output()
+void Signature::output(uint nb_values)
 {
     std::string path = "../../";
     std::string distname = path + name() + "_dist.csv";
@@ -286,23 +282,28 @@ void Signature::output()
         throw std::runtime_error("Could not open file " + timename);
         exit(EXIT_FAILURE);
     }
+    timefile << "m: " << M << " - k: " << K << std::endl;
     timefile << "build time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end_build - begin_build).count() << "ms" << std::endl;
+    
+    std::vector<uint32_t> occurences(1 << (2 * M), 0);
+    Bqf_ec kmers = Bqf_ec(std::ceil(std::log2(nb_values)),1,K,0,false);
+    uint64_t total_nb_signatures = 0;
+    uint nb_distinct_min = 0;
+    uint nb_skipped = 0;
+    uint64_t superkmerlgth = 0;
+
+    //parsing data input and computing minimizers
     std::vector<std::string> files;
     files.push_back(filename);
     fastx_parser::FastxParser<fastx_parser::ReadSeq> parser(files, 1, 1);
     parser.start();
     auto rg = parser.getReadGroup();
-    std::vector<uint32_t> occurences(1 << (2 * M), 0);
-    Bqf_ec kmers = Bqf_ec(18,1,K,0,false);
     auto begin = std::chrono::high_resolution_clock::now();
-    uint nb_distinct_min = 0;
-    uint nb_skipped = 0;
-    uint64_t superkmerlgth = 0;
     while (parser.refill(rg))
     {
         for (auto &rp : rg)
         {
-            std::pair<uint,uint> min_skipped = add_minimizers(rp.seq, occurences, kmers, superkmerlgth);
+            std::pair<uint,uint> min_skipped = add_minimizers(rp.seq, occurences, kmers, superkmerlgth, total_nb_signatures);
             nb_distinct_min += min_skipped.first;
             nb_skipped += min_skipped.second;
         }
@@ -310,7 +311,7 @@ void Signature::output()
     parser.stop();
 
     auto stop = std::chrono::high_resolution_clock::now();
-    auto time_per_minimizer = std::chrono::duration_cast<std::chrono::nanoseconds>((stop - begin) / (nb_distinct_min + nb_skipped));
+    auto time_per_minimizer = std::chrono::duration_cast<std::chrono::nanoseconds>((stop - begin) / total_nb_signatures);
     timefile << "computing minimizers time: " << time_per_minimizer.count() << "ns" << std::endl;
     timefile << "Found minimizers: " << nb_distinct_min << std::endl;
     timefile << "Skipped minimizers: " << nb_skipped << std::endl;
@@ -338,6 +339,16 @@ void Signature::output()
 uint32_t Signature::sign_with_extra_bit(uint64_t encoded, MMer minimizer) {
     uint idx = (2*minimizer.get_position() + (K - M + 1))%(2*K);
     return (minimizer.get_min_encoding() << 1) | ((encoded >> idx) & 0b1);
+}
+
+uint32_t Signature::sign_with_b_extra_bits(uint64_t encoded, MMer minimizer, uint b) {
+    uint32_t quotient = minimizer.get_min_encoding();
+    for (uint i = 0; i < b; i++) {
+        quotient <<= 1;
+        uint idx = (2*minimizer.get_position() + 2*i*(K - M + 1)/(b+1))%(2*K);
+        quotient |= (encoded >> idx) & 0b1;
+    }
+    return quotient;
 }
 
 /********************************
@@ -368,7 +379,7 @@ bool KMC_sign::is_allowed(uint32_t mmer)
     return true;
 }
 
-KMC_sign::KMC_sign(std::string filename) : Signature(filename)
+KMC_sign::KMC_sign(std::string filename, uint M) : Signature(filename, M)
 {
     end_build = std::chrono::high_resolution_clock::now();
 }
@@ -395,7 +406,7 @@ uint32_t KMC_sign::last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t& las
  * Roberts signature : mapping
  *******************************/
 
-Roberts_sign::Roberts_sign(std::string filename) : Signature(filename)
+Roberts_sign::Roberts_sign(std::string filename, uint M) : Signature(filename, M)
 {
     end_build = std::chrono::high_resolution_clock::now();
 }
@@ -418,7 +429,7 @@ uint32_t Roberts_sign::last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t&
  * Wood signature : xor
  *******************************/
 
-Wood_sign::Wood_sign(std::string filename) : Signature(filename)
+Wood_sign::Wood_sign(std::string filename, uint M) : Signature(filename, M)
 {
     end_build = std::chrono::high_resolution_clock::now();
 }
@@ -433,7 +444,7 @@ std::string Wood_sign::name()
  * Frequency-based signature
  *******************************/
 
-void add_all_mmers(std::string sequence, std::vector<uint32_t> &occ)
+void add_all_mmers(std::string sequence, std::vector<uint32_t> &occ, uint M)
 {
     if (sequence.length() < M)
         return;
@@ -474,7 +485,7 @@ std::vector<uint32_t> argsort(std::vector<uint32_t> &v)
     return idx;
 }
 
-Frequency_sign::Frequency_sign(std::string filename) : Signature(filename), order(1 << (2 * M))
+Frequency_sign::Frequency_sign(std::string filename, uint M) : Signature(filename, M), order(1 << (2 * M))
 {
     std::vector<std::string> files;
     files.push_back(filename);
@@ -486,7 +497,7 @@ Frequency_sign::Frequency_sign(std::string filename) : Signature(filename), orde
     {
         for (auto &rp : rg)
         {
-            add_all_mmers(rp.seq, occurences);
+            add_all_mmers(rp.seq, occurences, M);
         }
     }
     parser.stop();
@@ -513,33 +524,35 @@ std::string Frequency_sign::name()
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2) {
-        std::cerr << "Please provide filename and signature mode" << std::endl;
+    uint nb_values = 1 << 18;
+    if (argc < 3) {
+        std::cerr << "Please provide filename, signature mode and value of m" << std::endl;
         return EXIT_FAILURE;
     }
-    std::string filename = std::string(argv[1]);
-    if (argc == 2) {
-        Signature signature = Signature(filename);
-        signature.output();
+    const uint M = std::atoi(argv[3]);
+    std::string filename = std::string(argv[1]);    
+    std::string mode = std::string(argv[2]);
+
+    if (mode == "KMC") {
+        KMC_sign signature = KMC_sign(filename, M);
+        signature.output(nb_values);
+    } else if (mode == "XOR") {
+        Wood_sign signature = Wood_sign(filename, M);
+        signature.output(nb_values);
+    } else if (mode == "MAP") {
+        Roberts_sign signature = Roberts_sign(filename, M);
+        signature.output(nb_values);
+    } else if (mode == "FRE") {
+        Frequency_sign signature = Frequency_sign(filename, M);
+        signature.output(nb_values);
+    } else if (mode == "DEF") {
+        Signature signature = Signature(filename, M);
+        signature.output(nb_values);
+    } else {
+        std::cerr << "Invalid mode" << std::endl;
+        return EXIT_FAILURE;
     }
-    else {
-        std::string mode = std::string(argv[2]);
-        if (mode == "KMC") {
-            KMC_sign signature = KMC_sign(filename);
-            signature.output();
-        } else if (mode == "XOR") {
-            Wood_sign signature = Wood_sign(filename);
-            signature.output();
-        } else if (mode == "MAP") {
-            Roberts_sign signature = Roberts_sign(filename);
-            signature.output();
-        } else if (mode == "FRE") {
-            Frequency_sign signature = Frequency_sign(filename);
-            signature.output();
-        } else {
-            std::cerr << "Invalid mode" << std::endl;
-            return EXIT_FAILURE;
-        }
-    }
+
+    
     return 0;
 }

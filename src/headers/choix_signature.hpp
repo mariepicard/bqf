@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <numeric>
+#include <cmath>
 #include <stdint.h>
 #include <string>
 #include <iostream>
@@ -11,14 +12,13 @@
 #include "bqf_ec.hpp"
 #include "additional_methods.hpp"
 #include <algorithm>
-#include <deque>
 #include <chrono>
 #include <functional>
-static const uint M = 10;
+//static const uint M = 7;
 static const uint K = 32;
 static const uint64_t INDEX2_XOR_MASK = 0xe37e28c4271b5a2dULL;
 
-uint32_t compute_revcomp(uint32_t mmer);
+uint32_t compute_revcomp(uint32_t mmer, uint M);
 
 void display_bits(uint32_t mmer, std::ostream& str) {
     for (int i = 0; i < 32; i++){
@@ -46,16 +46,17 @@ uint32_t mask(int number_bits_right, int length) {
  * \return an encoding using one less bit
  */
 
-uint32_t minimal_encoding(uint32_t canon);
+uint32_t minimal_encoding(uint32_t canon, uint M);
 
 class MMer
 {
+    uint M;
     uint32_t mmer;
     uint32_t min_encoding;
     uint pos;
 
 public:
-    MMer(uint32_t mmer, uint pos) : mmer(mmer), min_encoding(minimal_encoding(mmer)), pos(pos) {}
+    MMer(uint32_t mmer, uint pos, uint M) : M(M), mmer(mmer), min_encoding(minimal_encoding(mmer, M)), pos(pos) {}
     uint32_t get_mmer() { return mmer; }
     uint32_t get_min_encoding() { return min_encoding; }
     uint get_position() { return pos; }
@@ -71,8 +72,9 @@ class Signature
     std::string filename;
 
 public:
+    const uint M;
     //maximum value of a kmer
-    const uint32_t max_value = (1 << (2 * M)) - 1;
+    const uint32_t max_value;
     //start and end of building the signature (useful if pre-computing is done)
     std::chrono::high_resolution_clock::time_point begin_build;
     std::chrono::high_resolution_clock::time_point end_build;
@@ -82,7 +84,7 @@ public:
     /********** CONSTRUCTORS **********/
 
     Signature() {};
-    Signature(std::string filename);
+    Signature(std::string filename, uint M);
     /**
      * @brief name of the signature, used to distinguish signatures when building files
      * */
@@ -153,18 +155,38 @@ public:
      */
     uint32_t sign_with_extra_bit(uint64_t encoded, MMer minimizer);
 
-    std::pair<uint,uint> add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth);
+    uint32_t sign_with_b_extra_bits(uint64_t encoded, MMer minimizer, uint b);
 
-    void output();
+    /**
+     * @brief add all signatures from a sequence to a vector of occurences
+     * \param seq : the sequence from which to add all signatures
+     * \param occurences : occurences[mmer] contains how many times this mmer was a minimizer of the sequence
+     * \param kmers : a BQF in which all previously seen kmers are stored (updated in this function)
+     * \param superkmerlgth : the number of consecutive kmers sharing a same quotient value (updated)
+     * \param total_nb_kmers : the total number of all kmers that were read (updated)
+     * \returns a pair containing the number of distinct kmers read in this sequence, 
+     * and the number of kmers that do not have a signature
+     */
+    std::pair<uint,uint> add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth, uint64_t& total_nb_kmers);
+
+    /**
+     * @brief computes the signature distribution from the fastx file, and writes it down, as well as some statistics
+     * in two files : a csv one for the distribution, and a txt one containing the statistics
+     * 
+     * TODO : choose path, name of files, specify output format
+     * 
+     * \param nb_values : the expecetd number of distinct kmers that will be read
+     */
+    void output(uint nb_values);
 };
 
 class KMC_sign : public Signature
 {
-    static bool is_allowed(uint32_t mmer);
+    bool is_allowed(uint32_t mmer);
 
 public:
     
-    KMC_sign(std::string filename);
+    KMC_sign(std::string filename, uint M);
     std::string name() override;
     uint32_t last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t& last_mmer, uint32_t& last_revcomp) override;
 };
@@ -173,7 +195,7 @@ class Roberts_sign : public Signature
 {
 public:
 
-    Roberts_sign(std::string filename);
+    Roberts_sign(std::string filename, uint M);
 
     std::string name() override;
     uint32_t last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t& last_mmer, uint32_t& last_revcomp) override;
@@ -184,7 +206,7 @@ class Wood_sign : public Signature
     uint32_t xor_mask = INDEX2_XOR_MASK & max_value;
 
 public:
-    Wood_sign(std::string filename);
+    Wood_sign(std::string filename, uint M);
 
     std::string name() override;
     bool compare(uint32_t u, uint32_t v) override {
@@ -198,7 +220,7 @@ class Frequency_sign : public Signature
     uint32_t most_occ;
 
 public:
-    Frequency_sign(std::string filename);
+    Frequency_sign(std::string filename, uint M);
 
     std::string name() override;
     bool compare(uint32_t u, uint32_t v) override {
