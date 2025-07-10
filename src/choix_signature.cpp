@@ -33,6 +33,10 @@ uint32_t min(uint32_t a, uint32_t b)
     return b;
 }
 
+/*********************************
+ * DISPLAY
+ ********************************/
+
 void display_MMer(uint64_t encoded, MMer minimizer, uint pos) {
     uint start = 2*minimizer.get_position() + 2;
     uint end = start - 2*M;
@@ -47,14 +51,40 @@ void display_MMer(uint64_t encoded, MMer minimizer, uint pos) {
     std::cout << std::endl;
 }
 
-uint32_t minimal_encoding(uint32_t canon, uint m) {
+void display_mmer(uint32_t mmer) {
+    std::string mmer_display = "";
+    for (int i = 0; i < M; i++) {
+        char conversion[4] = {'A', 'C', 'G', 'T'};
+        char c = conversion[(mmer >> (2*(M - 1))) & 0b11];
+        mmer_display.push_back(c);
+        mmer <<= 2;
+    }
+    std::cout << mmer_display << std::endl;
+}
+
+void display_kmer(uint64_t kmer) {
+    std::string kmer_display = "";
+    for (int i = 0; i < K; i++) {
+        char conversion[4] = {'A', 'C', 'G', 'T'};
+        char c = conversion[(kmer >> (2*(K - 1))) & 0b11];
+        kmer_display.push_back(c);
+        kmer <<= 2;
+    }
+    std::cout << kmer_display << std::endl;
+}
+
+/*********************************
+ * MINIMAL ENCODING OF MMERS
+ ********************************/
+
+uint32_t minimal_encoding(uint32_t canon) {
     uint32_t encoding = 0;
     uint i = 0;
     uint palindromic = 0; //0 if palindromic, 1 after a specifying pair is found
     //while no specifying pair is found
-    for (; 2*i+1 < m; i++){
+    for (; 2*i+1 < M; i++){
         uint32_t r = (~canon >> (2*i)) & 0b11;
-        uint32_t l = (canon >> (2*(m - i - 1))) & 0b11;
+        uint32_t l = (canon >> (2*(M - i - 1))) & 0b11;
 
         if (r == l) {
             encoding |= r << (2*i);
@@ -62,14 +92,14 @@ uint32_t minimal_encoding(uint32_t canon, uint m) {
         else {
             uint32_t value = l*4 - l*(l+1)/2 + r - l - 1;
             value += 0b0100; //making sure the encoding of the specifying pair does not start with 0
-            encoding |= (value << (2*(m - i - 2)));
+            encoding |= (value << (2*(M - i - 2)));
             palindromic = 1;
             i++;
             break;
         }
     }
-    encoding |= (mask(2*i, 2*m - 4*i) & canon)>>(2*palindromic);
-    uint32_t missing = palindromic*(1<<(2*(m - i) - 1));
+    encoding |= (mask(2*i, 2*M - 4*i) & canon)>>(2*palindromic);
+    uint32_t missing = palindromic*(1<<(2*(M - i) - 1));
     return encoding - missing;
 }
 
@@ -77,39 +107,38 @@ uint32_t minimal_encoding(uint32_t canon, uint m) {
  * SLIDING WINDOW ALGORITHM
  ********************************/
 
-std::vector<uint32_t> Signature::sliding_window_minimum(std::vector<uint32_t>& canonical_mmers, uint start) {
+std::vector<uint32_t> Signature::sliding_window_minimum(std::vector<uint32_t>& mmers, uint start) {
 /*  basically, the minimum in the sliding window is the minimum of two "offseted" vectors (min_left and min_right)
     but:
         min_left is computed on the fly (we only store its required element)
         min_right is stored in the vector passed as parameter
-    the response is computed in the canonical_mmers vector directly to avoid memory allocation.
+    the response is computed in the mmers vector directly to avoid memory allocation.
  */
-    uint w = 2*(K - M) + 1;
-    std::cerr << "Size of array : " << (canonical_mmers.size()) << " - start : " << start << std::endl;
-    uint size_of_array = canonical_mmers.size() - start;
+    uint w = K - M + 1;
+    uint size_of_array = mmers.size() - start;
     if (size_of_array < w) {
-        for (; canonical_mmers.size() > start; canonical_mmers.pop_back()) {}
-        return canonical_mmers;
+        for (; mmers.size() > start; mmers.pop_back()) {}
+        return mmers;
     }
 
     uint nbWin = size_of_array / w;
     int nb_elem_last_window = size_of_array % w;
 
-    int min_left = canonical_mmers[start];
+    int min_left = mmers[start];
     for (uint i = 1; i < w; i++) {
-        min_left = min_mmer(min_left, canonical_mmers[i + start]); 
+        min_left = min_mmer(min_left, mmers[i + start]); 
     }
 
     for (uint i = 0; i < nbWin - 1; i++) {
         int start_window = i * w + start;
         for (int indice = start_window + w - 2; indice >= start_window; indice--) {
-            // we compute "min_right" here, directly in canonical_mmers vector
-            canonical_mmers[indice] = min_mmer(canonical_mmers[indice + 1], canonical_mmers[indice]); 
+            // we compute "min_right" here, directly in mmers vector
+            mmers[indice] = min_mmer(mmers[indice + 1], mmers[indice]); 
         }
 
         for (uint j = 0; j < w; j++) {
-            canonical_mmers[start_window + j] = min_mmer(canonical_mmers[start_window + j], min_left); 
-            min_left = (j == 0) ? canonical_mmers[start_window + w + j] : min_mmer(min_left, canonical_mmers[start_window + w + j]);
+            mmers[start_window + j] = min_mmer(mmers[start_window + j], min_left); 
+            min_left = (j == 0) ? mmers[start_window + w + j] : min_mmer(min_left, mmers[start_window + w + j]);
         }
     }
 
@@ -117,21 +146,21 @@ std::vector<uint32_t> Signature::sliding_window_minimum(std::vector<uint32_t>& c
     // compute min_right for last window
     int start_window = (nbWin - 1) * w + start;
     for (int indice = start_window + w - 2; indice >= start_window; indice--) {
-        canonical_mmers[indice] = min_mmer(canonical_mmers[indice + 1], canonical_mmers[indice]); 
+        mmers[indice] = min_mmer(mmers[indice + 1], mmers[indice]); 
     }
 
     // compute the min for the last window
     for (int j = 0; j < nb_elem_last_window; j++) {
         
-        canonical_mmers[start_window + j] = min_mmer(canonical_mmers[start_window + j], min_left);
-        min_left = (j == 0) ? canonical_mmers[start_window + w + j] : min_mmer(min_left, canonical_mmers[start_window + w + j]);
+        mmers[start_window + j] = min_mmer(mmers[start_window + j], min_left);
+        min_left = (j == 0) ? mmers[start_window + w + j] : min_mmer(min_left, mmers[start_window + w + j]);
     }
     
-    canonical_mmers[start_window + nb_elem_last_window] = min_mmer(canonical_mmers[start_window + nb_elem_last_window], min_left);
+    mmers[start_window + nb_elem_last_window] = min_mmer(mmers[start_window + nb_elem_last_window], min_left);
     for (uint i = 0; i < w - 1; i++) {
-        canonical_mmers.pop_back();
+        mmers.pop_back();
     }
-    return canonical_mmers;
+    return mmers;
 }
 
 /*********************************
@@ -144,18 +173,21 @@ Signature::Signature(std::string filename) : filename(filename), kmers_per_min(1
     end_build = std::chrono::high_resolution_clock::now();
 }
 
-uint32_t Signature::last_canonical_mmer_encoding(uint64_t encoded, uint32_t& last_mmer, uint32_t& last_revcomp){
-    last_revcomp = (last_revcomp >> 2) | ((~encoded & 0b11) << (2*(M - 1)));
-    last_mmer = encoded & max_value;
+uint32_t Signature::last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t& last_mmer, uint32_t& last_revcomp){
+    last_revcomp = (last_revcomp >> 2) | ((~new_nucl & 0b11) << (2*(M - 1)));
+    last_mmer = ((last_mmer << 2) | new_nucl) & max_value;
     return min(last_mmer, last_revcomp);
 }
 
 std::vector<uint32_t> Signature::all_signatures(std::string seq) {
     uint32_t current_mmer = 0;
     uint32_t current_revcomp = 0;
-    uint lgth = 0;
-    uint start = 0;
-    std::vector<uint32_t> all_mmers = std::vector<uint32_t>(seq.length() - M + 1);
+    uint lgth = 0; //lgth of the sequence already computed, starting from the last N character or the beginning
+    /*position starting from which all_mmers is a sliding window of all canonical mmers read
+    before start position, all_mmers contains all the signatures previously computed*/
+    uint start = 0; 
+    //up to start : signatures - after start : canonical mmers read
+    std::vector<uint32_t> all_mmers = std::vector<uint32_t>(); 
     for (size_t i = 0; i < seq.length(); i++)
     {
         uint32_t new_nucl = 0;
@@ -170,7 +202,7 @@ std::vector<uint32_t> Signature::all_signatures(std::string seq) {
             all_mmers = sliding_window_minimum(all_mmers, start);
             start = all_mmers.size();
         }
-        uint32_t canon = last_canonical_mmer_encoding(new_nucl, current_mmer, current_revcomp);
+        uint32_t canon = last_canonical_mmer_encoding(new_nucl, current_mmer, current_revcomp);//updates mmer & revcomp
         if (lgth >= M) {
             all_mmers.push_back(canon);
         }
@@ -184,7 +216,7 @@ std::vector<uint64_t> Signature::all_canonical_kmers(std::string seq) {
     uint64_t current_revcomp = 0;
     uint64_t mask_K = mask(0, 2*K);
     uint lgth = 0;
-    std::vector<uint64_t> all_kmers = std::vector<uint64_t>(seq.length() - K + 1);
+    std::vector<uint64_t> all_kmers = std::vector<uint64_t>();
     for (size_t i = 0; i < seq.length(); i++)
     {
         current_kmer <<= 2;
@@ -213,6 +245,7 @@ std::vector<uint64_t> Signature::all_canonical_kmers(std::string seq) {
 
 std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint32_t>& occurences, Bqf_ec& kmers, uint64_t& superkmerlgth)
 {
+    //std::cout << "Size of mmer array : " << (seq.size() - M) << "\n Size of kmer array : " << (seq.size() - K) << std::endl;
     std::vector<uint32_t> signs = all_signatures(seq);
     std::vector<uint64_t> all_kmers = all_canonical_kmers(seq);
     uint arr_lgth = signs.size();
@@ -228,9 +261,9 @@ std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint
         if (signs[i] == max_value) {
             nb_skipped ++;
         } else {
-            uint32_t position_in_bqf = minimal_encoding(signs[i], M);//sign_with_extra_bit(all_kmers[i], minimizer);
+            uint32_t position_in_bqf = minimal_encoding(signs[i]);//sign_with_extra_bit(all_kmers[i], minimizer);
             kmers_per_min[position_in_bqf]++;
-            if (kmers.insert(kmer_to_hash(all_kmers[i], K))) {
+            if (!kmers.insert(kmer_to_hash(all_kmers[i], K))) {
                 occurences[position_in_bqf]++;
                 nb_distinct_min++;
             }
@@ -244,7 +277,9 @@ std::pair<uint,uint> Signature::add_minimizers(std::string seq, std::vector<uint
 
 void Signature::output()
 {
-    std::string timename = "../../" + name() + "_time.txt";
+    std::string path = "../../";
+    std::string distname = path + name() + "_dist.csv";
+    std::string timename = path + name() + "_time.txt";
     std::ofstream timefile(timename);
     if (!timefile.is_open())
     {
@@ -275,34 +310,33 @@ void Signature::output()
     parser.stop();
 
     auto stop = std::chrono::high_resolution_clock::now();
-    auto time_per_minimizer = std::chrono::duration_cast<std::chrono::nanoseconds>((stop - begin) / nb_distinct_min);
+    auto time_per_minimizer = std::chrono::duration_cast<std::chrono::nanoseconds>((stop - begin) / (nb_distinct_min + nb_skipped));
     timefile << "computing minimizers time: " << time_per_minimizer.count() << "ns" << std::endl;
     timefile << "Found minimizers: " << nb_distinct_min << std::endl;
     timefile << "Skipped minimizers: " << nb_skipped << std::endl;
     timefile << "Number of follow-ups: " << superkmerlgth << std::endl;
     timefile.close();
 
-    std::string distname = "../../" + name() + "_dist.csv";
     std::ofstream repartitionfile(distname);
     if (!repartitionfile.is_open())
     {
         throw std::runtime_error("Could not open file " + distname);
         exit(EXIT_FAILURE);
     }
-    repartitionfile << "mmer,nb_distinct_occs,nb_total_occs" << std::endl;
+    std::string output_in_file = "mmer,nb_distinct_occs,nb_total_occs\n";
     for (uint32_t mmer = 0; mmer < max_value/2 + 1; mmer++)
     {
-        //uint32_t canon = min(mmer, compute_revcomp(mmer));
-        repartitionfile << mmer << "," << occurences[mmer] << "," << kmers_per_min[mmer] << std::endl;
-
+        if (occurences[mmer] > 0) {
+            output_in_file += std::to_string(mmer) + "," + std::to_string(occurences[mmer]) + "," + std::to_string(kmers_per_min[mmer]) + "\n";
+        }
     }
+    repartitionfile << output_in_file;
     repartitionfile << max_value << "," << nb_skipped << std::endl;
     repartitionfile.close();
 }
 
 uint32_t Signature::sign_with_extra_bit(uint64_t encoded, MMer minimizer) {
     uint idx = (2*minimizer.get_position() + (K - M + 1))%(2*K);
-    //display_MMer(encoded, minimizer, idx);
     return (minimizer.get_min_encoding() << 1) | ((encoded >> idx) & 0b1);
 }
 
@@ -344,9 +378,9 @@ std::string KMC_sign::name()
     return "kmc_signature";
 }
 
-uint32_t KMC_sign::last_canonical_mmer_encoding(uint64_t encoded, uint32_t& last_mmer, uint32_t& last_revcomp){
-    last_revcomp = (last_revcomp >> 2) | ((~encoded & 0b11) << (2*(M - 1)));
-    last_mmer = encoded & max_value;
+uint32_t KMC_sign::last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t& last_mmer, uint32_t& last_revcomp){
+    last_revcomp = (last_revcomp >> 2) | ((~new_nucl & 0b11) << (2*(M - 1)));
+    last_mmer = ((last_mmer << 2) | new_nucl) & max_value;
     uint32_t canon = min(last_revcomp, last_mmer);
     if (is_allowed(canon)) {
         return canon;
@@ -371,12 +405,12 @@ std::string Roberts_sign::name()
     return "alternate_mappings_signature";
 }
 
-uint32_t Roberts_sign::last_canonical_mmer_encoding(uint64_t encoded, uint32_t& last_mmer, uint32_t& last_revcomp){
+uint32_t Roberts_sign::last_canonical_mmer_encoding(uint64_t new_nucl, uint32_t& last_mmer, uint32_t& last_revcomp){
     last_revcomp = (~last_revcomp) & max_value;
-    uint32_t new_nucl = (encoded^0b01) & 0b11;
+    new_nucl = (new_nucl^0b01) & 0b11;
     last_revcomp = (last_revcomp >> 2) | ((~new_nucl & 0b11) << (2*(M - 1)));
     last_mmer = (((~last_mmer) << 2) | new_nucl) & max_value;
-    return min(last_revcomp, encoded & max_value);
+    return min(last_revcomp, last_mmer);
 }
 
 

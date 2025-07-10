@@ -69,6 +69,7 @@ public:
      * 
      * \param number to insert
      * \param count number of occurences of the element to insert (default: 1)
+     * \returns true if the number was already present in the BQF
      */
     virtual bool insert(uint64_t number, uint64_t count = 1);
 
